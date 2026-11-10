@@ -2,7 +2,7 @@ import sqlite3
 from datetime import datetime
 
 def init_db():
-    conn = sqlite3.connect('tradeai.db')
+    conn = sqlite3.connect('/app/data/tradeai.db')
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS signals (
@@ -20,7 +20,7 @@ def init_db():
     conn.close()
 
 def save_signal(symbol, direction, entry, stop_loss, take_profit):
-    conn = sqlite3.connect('tradeai.db')
+    conn = sqlite3.connect('/app/data/tradeai.db')
     cursor = conn.cursor()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cursor.execute('''
@@ -31,7 +31,7 @@ def save_signal(symbol, direction, entry, stop_loss, take_profit):
     conn.close()
 
 def get_open_signals():
-    conn = sqlite3.connect('tradeai.db')
+    conn = sqlite3.connect('/app/data/tradeai.db')
     cursor = conn.cursor()
     cursor.execute("SELECT id, symbol, direction, entry, stop_loss, take_profit FROM signals WHERE status = 'OPEN'")
     signals = cursor.fetchall()
@@ -39,14 +39,14 @@ def get_open_signals():
     return signals
 
 def update_signal_status(signal_id, status):
-    conn = sqlite3.connect('tradeai.db')
+    conn = sqlite3.connect('/app/data/tradeai.db')
     cursor = conn.cursor()
     cursor.execute("UPDATE signals SET status = ? WHERE id = ?", (status, signal_id))
     conn.commit()
     conn.close()
 
 def get_stats():
-    conn = sqlite3.connect('tradeai.db')
+    conn = sqlite3.connect('/app/data/tradeai.db')
     cursor = conn.cursor()
     cursor.execute("SELECT COUNT(*) FROM signals")
     total = cursor.fetchone()[0]
