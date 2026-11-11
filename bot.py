@@ -26,7 +26,6 @@ dp = Dispatcher()
 last_signals = {}
 ADMIN_CHAT_ID = None
 
-# ДОБАВИЛИ БОЛЬШЕ МОНЕТ ДЛЯ ЧАСТЫХ СИГНАЛОВ
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT"]
 
 database.init_db()
