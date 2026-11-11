@@ -2,15 +2,12 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Копируем и устанавливаем зависимости
 COPY requirements.txt .
+
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Создаем директорию для данных (сюда Railway подключит постоянный том)
 RUN mkdir -p /app/data
 
-# Копируем весь код проекта
 COPY . .
 
-# Указываем команду для запуска
 CMD ["python", "bot.py"]
