@@ -1,11 +1,8 @@
 #!/bin/sh
 set -e
 
-if [ "$(id -u)" = "0" ]; then
-    DATA_DIR="/app/data"
-    mkdir -p "$DATA_DIR"
-    chown -R 1000:1000 "$DATA_DIR" || true
-    exec gosu 1000:1000 "$@"
-fi
+# Принудительно меняем владельца папки /data на пользователя 1000
+chown -R 1000:1000 /data
 
-exec "$@"
+# Запускаем бота от имени пользователя 1000
+exec gosu 1000:1000 "$@"
