@@ -1,5 +1,6 @@
 FROM python:3.12-slim
 
+# Устанавливаем gosu для безопасного переключения пользователей
 RUN apt-get update && apt-get install -y gosu && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -7,13 +8,17 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Создаем папку /data
-RUN mkdir -p /data && chown -R 1000:1000 /data
+# Создаем папку для данных
+RUN mkdir -p /data
 
 COPY . .
 
+# Копируем entrypoint и делаем его исполняемым
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+# Запускаем контейнер от root, чтобы entrypoint мог выполнить chown
+USER root
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["python", "bot.py"]
