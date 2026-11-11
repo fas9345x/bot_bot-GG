@@ -1,4 +1,4 @@
-import sqlite3
+DB_PATH = '/app/data/tradeai.db'
 from datetime import datetime
 
 DB_PATH = '/app/data/tradeai.db'
