@@ -1,9 +1,18 @@
-DB_PATH = '/app/data/tradeai.db'
+import sqlite3
+import os
 from datetime import datetime
 
-DB_PATH = '/app/data/tradeai.db'
+DB_DIR = '/app/data'
+DB_PATH = os.path.join(DB_DIR, 'tradeai.db')
 
 def init_db():
+    # Создаем папку, если ее нет, и даем полные права
+    os.makedirs(DB_DIR, exist_ok=True)
+    try:
+        os.chmod(DB_DIR, 0o777)
+    except Exception as e:
+        print(f"Не удалось изменить права: {e}")
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
