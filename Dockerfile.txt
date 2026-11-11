@@ -5,8 +5,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN mkdir -p /data
+# Создаем папку для базы и даем полные права
+RUN mkdir -p /app/data && chmod 777 /app/data
 
 COPY . .
+
+# Явно указываем, что запускаем от root
+USER root
 
 CMD ["python", "bot.py"]
