@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime
 
-DB_PATH = 'tradeai.db'
+DB_PATH = '/tmp/tradeai.db'
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
