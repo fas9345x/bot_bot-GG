@@ -6,8 +6,13 @@ COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN mkdir -p /app/data && chmod 777 /app/data
+RUN mkdir -p /app/data
 
 COPY . .
+
+# Копируем скрипт, даем ему права на выполнение и делаем точкой входа
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
 
 CMD ["python", "bot.py"]
