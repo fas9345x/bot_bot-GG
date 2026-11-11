@@ -45,16 +45,28 @@ async def start(message: types.Message):
 
 @dp.message(F.text == "📊 Анализ рынка")
 async def btn_scan(message: types.Message):
-    await message.answer("Анализирую рынок (BTC, ETH, SOL)...")
-    for symbol in SYMBOLS:
-        df = await asyncio.to_thread(get_klines, symbol, "60", 100)
-        if df is None: continue
+    await message.answer("⏳ Скачиваю данные по BTC, ETH и SOL...")
+    
+    # Создаем задачи для параллельной загрузки данных по всем монетам сразу
+    tasks = [asyncio.to_thread(get_klines, symbol, "60", 100) for symbol in SYMBOLS]
+    results = await asyncio.gather(*tasks)
+    
+    await message.answer("🧠 Анализирую индикаторы...")
+    
+    found_signal = False
+    for symbol, df in zip(SYMBOLS, results):
+        if df is None or df.empty: 
+            continue
+            
         trend, price, rsi, adx = analyze_trend(df)
-        if trend == "НЕТ": continue
+        if trend == "НЕТ": 
+            continue
 
         signal = get_entry_signal(df, trend)
-        if not signal: continue
+        if not signal: 
+            continue
 
+        found_signal = True
         coins, usd_size = calculate_position_size(signal['entry'], signal['stop_loss'])
         database.save_signal(symbol, signal['direction'], signal['entry'], signal['stop_loss'], signal['take_profit'])
 
@@ -62,7 +74,9 @@ async def btn_scan(message: types.Message):
         text += f"📍 Вход: <b>{signal['entry']:.2f}</b>\n🛑 SL: <b>{signal['stop_loss']:.2f}</b>\n🎯 TP: <b>{signal['take_profit']:.2f}</b>\n\n"
         text += f"💼 Размер: {coins:.4f} (~{usd_size:.2f} $)\n📈 RSI: {rsi:.2f} | 📉 ADX: {adx:.2f}"
         await message.answer(text, parse_mode="HTML")
-        await asyncio.sleep(1)
+    
+    if not found_signal:
+        await message.answer("⚪ На текущий момент сильных трендов нет. Ждем!")
 
 @dp.message(F.text == "📈 История сигналов")
 async def btn_history(message: types.Message):
@@ -97,7 +111,6 @@ async def btn_status(message: types.Message):
     text = f"<b>Статус системы:</b>\nАвто-сканер: {status}\nМонеты: {', '.join(SYMBOLS)}\nМост: Активен\n\n<i>Трекер сигналов работает в фоне.</i>"
     await message.answer(text, parse_mode="HTML")
 
-# --- ФОНОВАЯ ПРОВЕРКА СИГНАЛОВ (WIN/LOSS) ---
 async def signal_tracker():
     print("Трекер сигналов запущен...")
     while True:
@@ -105,8 +118,6 @@ async def signal_tracker():
             open_signals = database.get_open_signals()
             for sig in open_signals:
                 sig_id, symbol, direction, entry, sl, tp = sig
-                
-                # Получаем текущую цену (берем 1 последнюю свечу)
                 df = await asyncio.to_thread(get_klines, symbol, "1", 1)
                 if df is not None and not df.empty:
                     current_price = df['close'].iloc[-1]
@@ -129,7 +140,7 @@ async def signal_tracker():
         except Exception as e:
             print(f"Ошибка трекера: {e}")
             
-        await asyncio.sleep(900) # Проверка каждые 15 минут
+        await asyncio.sleep(900)
 
 async def auto_scanner():
     global ADMIN_CHAT_ID
@@ -159,7 +170,7 @@ async def auto_scanner():
 async def main():
     print("Бот запущен...")
     asyncio.create_task(auto_scanner())
-    asyncio.create_task(signal_tracker()) # Запускаем трекер
+    asyncio.create_task(signal_tracker())
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
