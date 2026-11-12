@@ -12,6 +12,7 @@ from scanner import analyze_trend
 from entry import get_entry_signal
 from risk import calculate_position_size
 from backtest import run_backtest
+from executor import place_real_trade # ИМПОРТИРУЕМ ТОРГОВЫЙ МОДУЛЬ
 import database
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
@@ -26,7 +27,8 @@ dp = Dispatcher()
 last_signals = {}
 ADMIN_CHAT_ID = None
 
-SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT"]
+# УБРАЛИ BTC, ОСТАВИЛИ ТОЛЬКО ДЕШЕВЫЕ МОНЕТЫ
+SYMBOLS = ["ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT"]
 
 database.init_db()
 
@@ -42,11 +44,11 @@ def get_main_keyboard():
 async def start(message: types.Message):
     global ADMIN_CHAT_ID
     ADMIN_CHAT_ID = message.chat.id
-    await message.answer("Привет! Я TradeAI Scanner.\n\nСлежу за 6 монетами на 15м таймфрейме. Выбери действие 👇", reply_markup=get_main_keyboard())
+    await message.answer("Привет! Я TradeAI Scanner.\n⚠️ ВКЛЮЧЕН РЕЖИМ РЕАЛЬНОЙ ТОРГОВЛИ!\n\nСлежу за 5 монетами на 15м таймфрейме. Выбери действие 👇", reply_markup=get_main_keyboard())
 
 @dp.message(F.text == "📊 Анализ рынка")
 async def btn_scan(message: types.Message):
-    await message.answer("⏳ Скачиваю данные по 6 монетам...")
+    await message.answer("⏳ Скачиваю данные по монетам...")
     
     tasks = [asyncio.to_thread(get_klines, symbol, "15", 100) for symbol in SYMBOLS]
     results = await asyncio.gather(*tasks)
@@ -70,9 +72,20 @@ async def btn_scan(message: types.Message):
         coins, usd_size = calculate_position_size(signal['entry'], signal['stop_loss'])
         database.save_signal(symbol, signal['direction'], signal['entry'], signal['stop_loss'], signal['take_profit'])
 
-        text = f"🚨 <b>СИГНАЛ: {signal['direction']}</b> 🚨\nМонета: <b>{symbol} (15м)</b>\n\n"
+        # ОТПРАВЛЯЕМ ОРДЕР НА БИРЖУ
+        success, real_qty = await asyncio.to_thread(
+            place_real_trade, symbol, signal['direction'], coins, signal['take_profit'], signal['stop_loss']
+        )
+
+        text = ""
+        if success:
+            text += f"✅ <b>ОРДЕР ОТКРЫТ НА БИРЖЕ!</b> ✅\n"
+        else:
+            text += f"⚠️ <b>СИГНАЛ ЕСТЬ, НО ОРДЕР НЕ ОТКРЫТ (ошибка)</b> ⚠️\n"
+        
+        text += f"🚨 <b>СИГНАЛ: {signal['direction']}</b> 🚨\nМонета: <b>{symbol} (15м)</b>\n\n"
         text += f"📍 Вход: <b>{signal['entry']:.4f}</b>\n🛑 SL: <b>{signal['stop_loss']:.4f}</b>\n🎯 TP: <b>{signal['take_profit']:.4f}</b>\n\n"
-        text += f"💼 Размер: {coins:.4f} (~{usd_size:.2f} $)\n📈 RSI: {rsi:.2f} | 📉 ADX: {adx:.2f}"
+        text += f"💼 Размер: {real_qty} (~{usd_size:.2f} $)\n📈 RSI: {rsi:.2f} | 📉 ADX: {adx:.2f}"
         await message.answer(text, parse_mode="HTML")
     
     if not found_signal:
@@ -82,13 +95,7 @@ async def btn_scan(message: types.Message):
 async def btn_history(message: types.Message):
     total, wins, losses = database.get_stats()
     win_rate = (wins / (wins + losses) * 100) if (wins + losses) > 0 else 0
-    
-    text = f"📁 <b>Статистика сигналов:</b>\n\n"
-    text += f"Всего сохранено: {total}\n"
-    text += f"🟢 Прибыльных (TP): {wins}\n"
-    text += f"🔴 Убыточных (SL): {losses}\n"
-    text += f"🎯 Текущий Win Rate: <b>{win_rate:.1f}%</b>\n\n"
-    text += f"<i>(Сигналы со статусом OPEN еще в работе)</i>"
+    text = f"📁 <b>Статистика сигналов:</b>\n\nВсего: {total}\n🟢 WIN: {wins}\n🔴 LOSS: {losses}\n🎯 Win Rate: <b>{win_rate:.1f}%</b>"
     await message.answer(text, parse_mode="HTML")
 
 @dp.message(F.text == "⏱ Бэктест 15м")
@@ -108,7 +115,7 @@ async def run_backtest_command(message: types.Message, tf: str):
 @dp.message(F.text == "🤖 Статус бота")
 async def btn_status(message: types.Message):
     status = "🟢 Включен" if ADMIN_CHAT_ID else "🔴 Ожидает /start"
-    text = f"<b>Статус системы:</b>\nАвто-сканер: {status}\nМонеты: {', '.join(SYMBOLS)}\nТаймфрейм: 15м\nМост: Активен"
+    text = f"<b>Статус системы:</b>\nАвто-сканер: {status}\nМонеты: {', '.join(SYMBOLS)}\nТаймфрейм: 15м\nТорговля: ⚠️ РЕАЛЬНАЯ"
     await message.answer(text, parse_mode="HTML")
 
 async def signal_tracker():
@@ -157,8 +164,21 @@ async def auto_scanner():
                             if signal:
                                 coins, usd_size = calculate_position_size(signal['entry'], signal['stop_loss'])
                                 database.save_signal(symbol, signal['direction'], signal['entry'], signal['stop_loss'], signal['take_profit'])
-                                text = f"🤖 <b>АВТО-СИГНАЛ: {signal['direction']}</b> 🤖\nМонета: <b>{symbol} (15м)</b>\n\n"
-                                text += f"📍 Вход: <b>{signal['entry']:.4f}</b>\n🛑 SL: <b>{signal['stop_loss']:.4f}</b>\n🎯 TP: <b>{signal['take_profit']:.4f}</b>\n\n💼 Размер: {coins:.4f} (~{usd_size:.2f} $)"
+                                
+                                # ОТПРАВЛЯЕМ ОРДЕР НА БИРЖУ (АВТО)
+                                success, real_qty = await asyncio.to_thread(
+                                    place_real_trade, symbol, signal['direction'], coins, signal['take_profit'], signal['stop_loss']
+                                )
+                                
+                                text = ""
+                                if success:
+                                    text += f"✅ <b>АВТО-ОРДЕР ОТКРЫТ НА БИРЖЕ!</b> ✅\n"
+                                else:
+                                    text += f"⚠️ <b>АВТО-СИГНАЛ, НО ОРДЕР НЕ ОТКРЫТ (ошибка)</b> ⚠️\n"
+                                
+                                text += f"🤖 <b>АВТО-СИГНАЛ: {signal['direction']}</b> 🤖\nМонета: <b>{symbol} (15м)</b>\n\n"
+                                text += f"📍 Вход: <b>{signal['entry']:.4f}</b>\n🛑 SL: <b>{signal['stop_loss']:.4f}</b>\n🎯 TP: <b>{signal['take_profit']:.4f}</b>\n\n💼 Размер: {real_qty} (~{usd_size:.2f} $)"
+                                
                                 await bot.send_message(chat_id=ADMIN_CHAT_ID, text=text, parse_mode="HTML")
                                 last_signals[symbol] = trend
                         elif trend == "НЕТ":
