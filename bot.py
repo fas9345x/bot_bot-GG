@@ -12,7 +12,7 @@ from scanner import analyze_trend
 from entry import get_entry_signal
 from risk import calculate_position_size
 from backtest import run_backtest
-from executor import place_real_trade # ИМПОРТИРУЕМ ТОРГОВЫЙ МОДУЛЬ
+from executor import place_real_trade 
 import database
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
@@ -27,7 +27,6 @@ dp = Dispatcher()
 last_signals = {}
 ADMIN_CHAT_ID = None
 
-# УБРАЛИ BTC, ОСТАВИЛИ ТОЛЬКО ДЕШЕВЫЕ МОНЕТЫ
 SYMBOLS = ["ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT"]
 
 database.init_db()
@@ -44,16 +43,16 @@ def get_main_keyboard():
 async def start(message: types.Message):
     global ADMIN_CHAT_ID
     ADMIN_CHAT_ID = message.chat.id
-    await message.answer("Привет! Я TradeAI Scanner.\n⚠️ ВКЛЮЧЕН РЕЖИМ РЕАЛЬНОЙ ТОРГОВЛИ!\n\nСлежу за 5 монетами на 15м таймфрейме. Выбери действие 👇", reply_markup=get_main_keyboard())
+    await message.answer("Привет! Я TradeAI Scanner.\n⚠️ ВКЛЮЧЕН РЕЖИМ РЕАЛЬНОЙ ТОРГОВЛИ (Стратегия Keltner, 60м)!\n\nВыбери действие 👇", reply_markup=get_main_keyboard())
 
 @dp.message(F.text == "📊 Анализ рынка")
 async def btn_scan(message: types.Message):
-    await message.answer("⏳ Скачиваю данные по монетам...")
+    await message.answer("⏳ Скачиваю данные по монетам (60м)...")
     
-    tasks = [asyncio.to_thread(get_klines, symbol, "15", 100) for symbol in SYMBOLS]
+    tasks = [asyncio.to_thread(get_klines, symbol, "60", 100) for symbol in SYMBOLS]
     results = await asyncio.gather(*tasks)
     
-    await message.answer("🧠 Анализирую индикаторы...")
+    await message.answer("🧠 Анализирую сжатие и прорывы...")
     
     found_signal = False
     for symbol, df in zip(SYMBOLS, results):
@@ -72,7 +71,6 @@ async def btn_scan(message: types.Message):
         coins, usd_size = calculate_position_size(signal['entry'], signal['stop_loss'])
         database.save_signal(symbol, signal['direction'], signal['entry'], signal['stop_loss'], signal['take_profit'])
 
-        # ОТПРАВЛЯЕМ ОРДЕР НА БИРЖУ
         success, real_qty = await asyncio.to_thread(
             place_real_trade, symbol, signal['direction'], coins, signal['take_profit'], signal['stop_loss']
         )
@@ -81,15 +79,15 @@ async def btn_scan(message: types.Message):
         if success:
             text += f"✅ <b>ОРДЕР ОТКРЫТ НА БИРЖЕ!</b> ✅\n"
         else:
-            text += f"⚠️ <b>СИГНАЛ ЕСТЬ, НО ОРДЕР НЕ ОТКРЫТ (ошибка)</b> ⚠️\n"
+            text += f"⚠️ <b>ОРДЕР НЕ ОТКРЫТ (ошибка)</b> ⚠️\n"
         
-        text += f"🚨 <b>СИГНАЛ: {signal['direction']}</b> 🚨\nМонета: <b>{symbol} (15м)</b>\n\n"
+        text += f"🚨 <b>СИГНАЛ: {signal['direction']}</b> 🚨\nМонета: <b>{symbol} (60м)</b>\n\n"
         text += f"📍 Вход: <b>{signal['entry']:.4f}</b>\n🛑 SL: <b>{signal['stop_loss']:.4f}</b>\n🎯 TP: <b>{signal['take_profit']:.4f}</b>\n\n"
         text += f"💼 Размер: {real_qty} (~{usd_size:.2f} $)\n📈 RSI: {rsi:.2f} | 📉 ADX: {adx:.2f}"
         await message.answer(text, parse_mode="HTML")
     
     if not found_signal:
-        await message.answer("⚪ На 15м таймфрейме сильных трендов нет. Ждем!")
+        await message.answer("⚪ На 60м таймфрейме нет сжатия и прорыва. Ждем!")
 
 @dp.message(F.text == "📈 История сигналов")
 async def btn_history(message: types.Message):
@@ -115,7 +113,7 @@ async def run_backtest_command(message: types.Message, tf: str):
 @dp.message(F.text == "🤖 Статус бота")
 async def btn_status(message: types.Message):
     status = "🟢 Включен" if ADMIN_CHAT_ID else "🔴 Ожидает /start"
-    text = f"<b>Статус системы:</b>\nАвто-сканер: {status}\nМонеты: {', '.join(SYMBOLS)}\nТаймфрейм: 15м\nТорговля: ⚠️ РЕАЛЬНАЯ"
+    text = f"<b>Статус системы:</b>\nАвто-сканер: {status}\nМонеты: {', '.join(SYMBOLS)}\nТаймфрейм: 60м (Keltner)\nТорговля: ⚠️ РЕАЛЬНАЯ"
     await message.answer(text, parse_mode="HTML")
 
 async def signal_tracker():
@@ -151,12 +149,12 @@ async def signal_tracker():
 
 async def auto_scanner():
     global ADMIN_CHAT_ID
-    print("Авто-сканер запущен в фоне...")
+    print("Авто-сканер запущен в фоне (60м, Keltner)...")
     while True:
         if ADMIN_CHAT_ID is not None:
             for symbol in SYMBOLS:
                 try:
-                    df = await asyncio.to_thread(get_klines, symbol, "15", 100)
+                    df = await asyncio.to_thread(get_klines, symbol, "60", 100)
                     if df is not None:
                         trend, price, rsi, adx = analyze_trend(df)
                         if trend in ["LONG", "SHORT"] and last_signals.get(symbol) != trend:
@@ -165,7 +163,6 @@ async def auto_scanner():
                                 coins, usd_size = calculate_position_size(signal['entry'], signal['stop_loss'])
                                 database.save_signal(symbol, signal['direction'], signal['entry'], signal['stop_loss'], signal['take_profit'])
                                 
-                                # ОТПРАВЛЯЕМ ОРДЕР НА БИРЖУ (АВТО)
                                 success, real_qty = await asyncio.to_thread(
                                     place_real_trade, symbol, signal['direction'], coins, signal['take_profit'], signal['stop_loss']
                                 )
@@ -176,7 +173,7 @@ async def auto_scanner():
                                 else:
                                     text += f"⚠️ <b>АВТО-СИГНАЛ, НО ОРДЕР НЕ ОТКРЫТ (ошибка)</b> ⚠️\n"
                                 
-                                text += f"🤖 <b>АВТО-СИГНАЛ: {signal['direction']}</b> 🤖\nМонета: <b>{symbol} (15м)</b>\n\n"
+                                text += f"🤖 <b>АВТО-СИГНАЛ: {signal['direction']}</b> 🤖\nМонета: <b>{symbol} (60м)</b>\n\n"
                                 text += f"📍 Вход: <b>{signal['entry']:.4f}</b>\n🛑 SL: <b>{signal['stop_loss']:.4f}</b>\n🎯 TP: <b>{signal['take_profit']:.4f}</b>\n\n💼 Размер: {real_qty} (~{usd_size:.2f} $)"
                                 
                                 await bot.send_message(chat_id=ADMIN_CHAT_ID, text=text, parse_mode="HTML")
@@ -188,7 +185,7 @@ async def auto_scanner():
         await asyncio.sleep(3600)
 
 async def main():
-    print("Бот запущен...")
+    print("Бот запущен с новой стратегией (Keltner)...")
     asyncio.create_task(auto_scanner())
     asyncio.create_task(signal_tracker())
     await dp.start_polling(bot)

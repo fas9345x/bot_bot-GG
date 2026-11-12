@@ -1,18 +1,15 @@
-import pandas as pd
-
 def get_entry_signal(df, trend):
     if trend == "НЕТ":
         return None
         
-    last_price = df['close'].iloc[-1]
-    recent_low = df['low'].tail(10).min()
-    recent_high = df['high'].tail(10).max()
+    last_row = df.iloc[-1]
+    entry_price = last_row['close']
     
     signal = {}
     
     if trend == "LONG":
-        entry_price = last_price
-        stop_loss = recent_low * 0.999
+        # Стоп ставим за нижнюю границу канала
+        stop_loss = last_row['KC_lower'] 
         risk = entry_price - stop_loss
         take_profit = entry_price + (risk * 2)
         
@@ -25,8 +22,8 @@ def get_entry_signal(df, trend):
         }
         
     elif trend == "SHORT":
-        entry_price = last_price
-        stop_loss = recent_high * 1.001
+        # Стоп ставим за верхнюю границу канала
+        stop_loss = last_row['KC_upper']
         risk = stop_loss - entry_price
         take_profit = entry_price - (risk * 2)
         
