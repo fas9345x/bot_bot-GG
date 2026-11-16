@@ -2,18 +2,15 @@ def get_entry_signal(df, trend):
     if trend == "НЕТ":
         return None
         
-    last_row = df.iloc[-1]
-    entry_price = last_row['close']
-    
-    signal = {}
+    last = df.iloc[-1]
+    entry_price = last['close']
     
     if trend == "LONG":
-        # Стоп ставим за нижнюю границу канала
-        stop_loss = last_row['KC_lower'] 
-        risk = entry_price - stop_loss
-        take_profit = entry_price + (risk * 2)
+        # Импульс 15м: SL 3%, TP 6% (риск/прибыль 1:2)
+        stop_loss = entry_price * 0.97  # -3%
+        take_profit = entry_price * 1.06  # +6%
         
-        signal = {
+        return {
             "direction": "LONG",
             "entry": entry_price,
             "stop_loss": stop_loss,
@@ -22,12 +19,10 @@ def get_entry_signal(df, trend):
         }
         
     elif trend == "SHORT":
-        # Стоп ставим за верхнюю границу канала
-        stop_loss = last_row['KC_upper']
-        risk = stop_loss - entry_price
-        take_profit = entry_price - (risk * 2)
+        stop_loss = entry_price * 1.03  # +3%
+        take_profit = entry_price * 0.94  # -6%
         
-        signal = {
+        return {
             "direction": "SHORT",
             "entry": entry_price,
             "stop_loss": stop_loss,
@@ -35,4 +30,4 @@ def get_entry_signal(df, trend):
             "risk_reward": 2.0
         }
         
-    return signal
+    return None
