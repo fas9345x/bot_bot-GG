@@ -1,0 +1,47 @@
+{
+  "selection": {
+    "kind": "breakout96",
+    "atr_multiplier": 2.0,
+    "median_train_return_pct": -1.0237453372646588,
+    "minimum_trades": 88,
+    "min_train_return_pct": -8.898791558227225,
+    "SOLUSDT_return_pct": -1.8054977208038725,
+    "SOLUSDT_trades": 96,
+    "XRPUSDT_return_pct": 0.46106667432974646,
+    "XRPUSDT_trades": 97,
+    "DOGEUSDT_return_pct": -0.24199295372544505,
+    "DOGEUSDT_trades": 88,
+    "ADAUSDT_return_pct": -8.898791558227225,
+    "ADAUSDT_trades": 99
+  },
+  "oos_exploratory": {
+    "SOLUSDT": {
+      "total": 39,
+      "win_rate": 35.8974358974359,
+      "return_pct": -1.4496927553204642,
+      "max_drawdown_pct": 5.387802660043829
+    },
+    "XRPUSDT": {
+      "total": 42,
+      "win_rate": 26.19047619047619,
+      "return_pct": -6.5370426476468175,
+      "max_drawdown_pct": 7.470483624282269
+    },
+    "DOGEUSDT": {
+      "total": 37,
+      "win_rate": 24.324324324324323,
+      "return_pct": -6.731972086812976,
+      "max_drawdown_pct": 7.595558410395734
+    },
+    "ADAUSDT": {
+      "total": 38,
+      "win_rate": 23.68421052631579,
+      "return_pct": -6.951817044671937,
+      "max_drawdown_pct": 9.245259698887448
+    }
+  },
+  "split": "2026-10-22 21:45:00+00:00",
+  "candidate_count": 16,
+  "selection_rule": "max median training return across four symbols; >=8 trades per symbol; tie-break max worst-symbol return",
+  "warning": "OOS is exploratory: previous candidate OOS was inspected before this candidate comparison."
+}
