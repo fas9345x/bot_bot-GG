@@ -18,6 +18,7 @@ from pathlib import Path
 
 from pybit.exceptions import InvalidRequestError
 from pybit.unified_trading import HTTP
+from bybit_guard import call_bybit
 
 
 _CONFIG_ERRORS = []
@@ -80,6 +81,11 @@ def mode_label():
     return "TESTNET" if BYBIT_TESTNET else "РЕАЛЬНЫЙ СЧЁТ"
 
 
+def _api_call(method, action, **params):
+    """Route one exchange call through pacing/cooldown; never replay it."""
+    return call_bybit(lambda: method(**params), action=action)
+
+
 def _check_response(response, action):
     if not isinstance(response, dict) or type(response.get("retCode")) not in (int, str):
         raise RuntimeError(f"Bybit вернул некорректный ответ для {action}")
@@ -101,7 +107,7 @@ def _rows(response, action):
 
 
 def get_tickers_snapshot():
-    _, rows = _rows(session.get_tickers(category="linear"), "get_tickers")
+    _, rows = _rows(_api_call(session.get_tickers, "get_tickers", category="linear"), "get_tickers")
     return rows
 
 
@@ -123,11 +129,13 @@ def _all_pages(method, action, **params):
 
 def get_positions_snapshot():
     # Monitoring deliberately does not consult the new-order block.
-    return _all_pages(session.get_positions, "get_positions", category="linear", settleCoin="USDT", limit=200)
+    method = lambda **params: _api_call(session.get_positions, "get_positions", **params)
+    return _all_pages(method, "get_positions", category="linear", settleCoin="USDT", limit=200)
 
 
 def get_closed_pnl_snapshot():
-    return _all_pages(session.get_closed_pnl, "get_closed_pnl", category="linear", limit=100)
+    method = lambda **params: _api_call(session.get_closed_pnl, "get_closed_pnl", **params)
+    return _all_pages(method, "get_closed_pnl", category="linear", limit=100)
 
 
 def _decimal(value, field):
@@ -319,7 +327,8 @@ def clear_order_block_after_record():
 
 
 def _positions_for_symbol(symbol):
-    result, rows = _rows(session.get_positions(category="linear", symbol=symbol), "get_positions")
+    response = _api_call(session.get_positions, "get_positions", category="linear", symbol=symbol)
+    result, rows = _rows(response, "get_positions")
     if result.get("nextPageCursor"):
         raise RuntimeError("Неполный список позиций")
     for row in rows:
@@ -334,7 +343,8 @@ def _assert_no_existing_exposure(symbol):
     for position in _positions_for_symbol(symbol):
         if _decimal(position.get("size"), "position size") != 0:
             raise RuntimeError(f"Для {symbol} уже существует позиция")
-    result, orders = _rows(session.get_open_orders(category="linear", symbol=symbol, openOnly=0, limit=50), "get_open_orders")
+    response = _api_call(session.get_open_orders, "get_open_orders", category="linear", symbol=symbol, openOnly=0, limit=50)
+    result, orders = _rows(response, "get_open_orders")
     if result.get("nextPageCursor"):
         raise RuntimeError("Неполный список незавершённых ордеров")
     if orders:
@@ -342,7 +352,8 @@ def _assert_no_existing_exposure(symbol):
 
 
 def _instrument(symbol):
-    result, rows = _rows(session.get_instruments_info(category="linear", symbol=symbol), "get_instruments_info")
+    response = _api_call(session.get_instruments_info, "get_instruments_info", category="linear", symbol=symbol)
+    result, rows = _rows(response, "get_instruments_info")
     if result.get("nextPageCursor") or len(rows) != 1:
         raise RuntimeError("Инструмент не найден или данные неоднозначны")
     info = rows[0]
@@ -364,7 +375,8 @@ def _instrument(symbol):
 
 
 def _quote(symbol):
-    result, rows = _rows(session.get_tickers(category="linear", symbol=symbol), "get_tickers")
+    response = _api_call(session.get_tickers, "get_tickers", category="linear", symbol=symbol)
+    result, rows = _rows(response, "get_tickers")
     if result.get("nextPageCursor") or len(rows) != 1 or rows[0].get("symbol") != symbol:
         raise RuntimeError("Нет однозначной котировки символа")
     row = rows[0]
@@ -486,7 +498,10 @@ def place_real_trade(symbol, direction, qty, tp, sl, entry_price=None):
                         raise ValueError("SL/TP вне биржевого ценового диапазона")
             _assert_no_existing_exposure(symbol)
             try:
-                leverage_response = session.set_leverage(category="linear", symbol=symbol, buyLeverage=str(LEVERAGE), sellLeverage=str(LEVERAGE))
+                leverage_response = _api_call(
+                    session.set_leverage, "set_leverage", category="linear", symbol=symbol,
+                    buyLeverage=str(LEVERAGE), sellLeverage=str(LEVERAGE),
+                )
                 if not (isinstance(leverage_response, dict) and leverage_response.get("retCode") in (110043, "110043")):
                     _check_response(leverage_response, "set_leverage")
             except InvalidRequestError as exc:
@@ -524,13 +539,15 @@ def place_real_trade(symbol, direction, qty, tp, sl, entry_price=None):
             _create_marker(_marker_payload("submission_uncertain", "Возможна отправка ордера; нужна ручная проверка", token,
                                            symbol=symbol, orderLinkId=link_id, testnet=BYBIT_TESTNET))
             sent_intent = True
-            response = session.place_order(category="linear", symbol=symbol,
-                                           side="Buy" if direction == "LONG" else "Sell", orderType="Market",
-                                           qty=format(final_qty, "f"), positionIdx=0, orderLinkId=link_id,
-                                           takeProfit=format(take, "f"), stopLoss=format(stop, "f"),
-                                           tpTriggerBy="LastPrice", slTriggerBy="LastPrice", tpslMode="Full",
-                                           tpOrderType="Market", slOrderType="Market",
-                                           slippageToleranceType="Percent", slippageTolerance=format(slip, "f"))
+            response = _api_call(
+                session.place_order, "place_order", category="linear", symbol=symbol,
+                side="Buy" if direction == "LONG" else "Sell", orderType="Market",
+                qty=format(final_qty, "f"), positionIdx=0, orderLinkId=link_id,
+                takeProfit=format(take, "f"), stopLoss=format(stop, "f"),
+                tpTriggerBy="LastPrice", slTriggerBy="LastPrice", tpslMode="Full",
+                tpOrderType="Market", slOrderType="Market",
+                slippageToleranceType="Percent", slippageTolerance=format(slip, "f"),
+            )
             result = _check_response(response, "place_order")
             order_id = result.get("orderId")
             if not isinstance(order_id, str) or not order_id.strip():
@@ -570,10 +587,11 @@ def close_position(symbol, expected_side=None, expected_qty=None):
             side = position.get("side")
             if side not in ("Buy", "Sell"):
                 raise RuntimeError("Неизвестная сторона позиции; закрытие запрещено")
-            response = session.place_order(category="linear", symbol=symbol,
-                                           side="Sell" if side == "Buy" else "Buy",
-                                           orderType="Market", qty=format(size, "f"),
-                                           reduceOnly=True, positionIdx=0)
+            response = _api_call(
+                session.place_order, "emergency_close", category="linear", symbol=symbol,
+                side="Sell" if side == "Buy" else "Buy", orderType="Market",
+                qty=format(size, "f"), reduceOnly=True, positionIdx=0,
+            )
             _check_response(response, "emergency_close")
             print(f"[TRADING] {symbol}: запрос reduceOnly закрытия принят, исполнение не подтверждено.", flush=True)
         return True

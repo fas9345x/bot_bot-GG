@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import database
 import market
+import bybit_guard
 from risk import calculate_position_size
 
 
@@ -27,6 +28,12 @@ def candle(ms, p=10):
 
 
 class MarketTests(unittest.TestCase):
+    def setUp(self):
+        bybit_guard._reset_for_tests()
+
+    def tearDown(self):
+        bybit_guard._reset_for_tests()
+
     @patch.dict(os.environ, {"BYBIT_TESTNET": "true"})
     @patch("market.time.time", return_value=1801)
     @patch("market.requests.get")
@@ -60,6 +67,16 @@ class MarketTests(unittest.TestCase):
         bad[2] = "9"
         get.return_value = MockResponse(data([bad, candle(0)], 2*ms + 1000))
         self.assertIsNone(market.get_klines("SOLUSDT", "15", 3))
+
+    @patch("market.requests.get")
+    def test_public_10006_trips_shared_cooldown_without_retries(self, get):
+        get.return_value = MockResponse({"retCode": 10006, "retMsg": "Too many visits"})
+        self.assertIsNone(market.get_klines("SOLUSDT", "15", 3))
+        get.assert_called_once()
+        self.assertGreater(bybit_guard.cooldown_remaining(), 0)
+        get.reset_mock()
+        self.assertIsNone(market.get_klines("XRPUSDT", "15", 3))
+        get.assert_not_called()
 
 
 class RiskTests(unittest.TestCase):

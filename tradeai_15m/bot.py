@@ -17,6 +17,7 @@ from aiogram.client.telegram import TelegramAPIServer
 from filelock import FileLock, Timeout
 
 from market import get_klines
+from bybit_guard import cooldown_remaining
 from scanner import analyze_trend
 from entry import get_entry_signal
 from risk import calculate_position_size
@@ -50,6 +51,7 @@ TF = "15"
 SYMBOLS = ["SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT"]
 TRACKER_INTERVAL = max(60, int(os.getenv("TRACKER_INTERVAL_SECONDS", "300")))
 SCAN_INTERVAL = max(60, int(os.getenv("SCAN_INTERVAL_SECONDS", "300")))
+BUILD_ID = "tradeai-15m-final-api-guard-2026-11-19"
 SYMBOL_LOCKS = {symbol: asyncio.Lock() for symbol in SYMBOLS}
 # One position at a time across the configured symbols, within this process.
 PORTFOLIO_LOCK = asyncio.Lock()
@@ -171,8 +173,20 @@ async def myid(message: types.Message):
 @dp.message(F.text == "📊 Анализ рынка")
 async def btn_scan(message: types.Message):
     await message.answer("⏳ Скачиваю закрытые свечи 15м...")
-    tasks = [asyncio.to_thread(get_klines, symbol, TF, 250) for symbol in SYMBOLS]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    results = []
+    for index, symbol in enumerate(SYMBOLS):
+        if cooldown_remaining() > 0:
+            results.extend([None] * (len(SYMBOLS) - len(results)))
+            await message.answer("⏸ Bybit включил паузу по лимиту запросов; продолжу на следующем цикле.")
+            break
+        result = await asyncio.to_thread(get_klines, symbol, TF, 250)
+        results.append(result)
+        if cooldown_remaining() > 0:
+            results.extend([None] * (len(SYMBOLS) - len(results)))
+            await message.answer("⏸ Bybit включил паузу по лимиту запросов; продолжу на следующем цикле.")
+            break
+        if index + 1 < len(SYMBOLS):
+            await asyncio.sleep(1)
     await message.answer("🧠 Проверяю условия...")
 
     found_signal = False
@@ -275,10 +289,12 @@ async def run_bt(message: types.Message, tf: str):
 @dp.message(F.text == "🤖 Статус бота")
 async def btn_status(message: types.Message):
     blocked = executor.get_order_block_status()["blocked"]
+    cooldown = int(cooldown_remaining() + 0.999)
     await message.answer(
         f"<b>Статус:</b>\nАвто-сканер: {'🟢 активен' if ADMIN_CHAT_ID else '🔴 нажмите /start'}\n"
         f"Режим торговли: <b>{executor.mode_label()}</b>\n"
         f"Предохранитель новых ордеров: {'ЗАБЛОКИРОВАН — проверьте Bybit и логи' if blocked else 'не активен'}\n"
+        f"Пауза API Bybit: {cooldown} сек.\n"
         f"Среда Bybit: {'Testnet' if executor.BYBIT_TESTNET else 'MAINNET'}\n"
         f"Таймфрейм: 15м\nПлечо: x{executor.LEVERAGE}\n"
         f"Расчётный баланс риска: {os.getenv('RISK_BALANCE_USDT', '12')} USDT\n"
@@ -437,6 +453,9 @@ async def auto_scanner():
     while True:
         if ADMIN_CHAT_ID is not None:
             for symbol in SYMBOLS:
+                if cooldown_remaining() > 0:
+                    logger.info("Auto scanner paused while Bybit cooldown is active")
+                    break
                 try:
                     if any(row[1] == symbol for row in database.get_open_signals()):
                         continue
@@ -475,6 +494,10 @@ async def auto_scanner():
                             last_signals[symbol] = candle
                 except Exception as exc:
                     logger.warning("Scanner error for %s: %s", symbol, exc)
+                    if cooldown_remaining() > 0:
+                        break
+                if cooldown_remaining() > 0:
+                    break
                 await asyncio.sleep(2)
         await asyncio.sleep(SCAN_INTERVAL)
 
@@ -486,8 +509,10 @@ async def main():
     try:
         with lock:
             logger.info(
-                "Bot started; mode=%s; TF=%sm; tracker=%ss",
-                executor.mode_label(), TF, TRACKER_INTERVAL,
+                "BUILD_ID=%s Bot started; mode=%s; Bybit=%s; TF=%sm; tracker=%ss; scan=%ss; data_dir=%s",
+                BUILD_ID, executor.mode_label(),
+                "Testnet" if executor.BYBIT_TESTNET else "MAINNET",
+                TF, TRACKER_INTERVAL, SCAN_INTERVAL, database.DB_PATH.parent,
             )
             asyncio.create_task(auto_scanner())
             asyncio.create_task(signal_tracker())

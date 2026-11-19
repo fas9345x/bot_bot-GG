@@ -11,6 +11,8 @@ from pathlib import Path
 from unittest import mock
 
 import executor
+import bybit_guard
+from pybit.exceptions import InvalidRequestError
 
 
 def ok(rows=None, **extra):
@@ -31,10 +33,13 @@ def ticker():
 
 class ExecutorSafetyTests(unittest.TestCase):
     def setUp(self):
+        bybit_guard._reset_for_tests()
+        self.addCleanup(bybit_guard._reset_for_tests)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.stack = contextlib.ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(mock.patch.object(bybit_guard, "_MIN_REQUEST_INTERVAL", 0.0))
         self.stack.enter_context(mock.patch.object(socket.socket, "connect", side_effect=AssertionError("NETWORK FORBIDDEN")))
         self.stack.enter_context(mock.patch.dict(os.environ, {"MAX_ENTRY_DEVIATION_PCT": "0.2"}))
         path = Path(self.tmp.name)
@@ -182,6 +187,28 @@ class ExecutorSafetyTests(unittest.TestCase):
         self.assertEqual(self.client.place_order.call_count, 1)
         self.assertTrue(executor.clear_order_block_after_record())
         self.assertFalse(executor.get_order_block_status()["blocked"])
+
+    def test_existing_leverage_is_treated_as_noop(self):
+        # Bybit may respond with 110043 when the requested leverage is already set.
+        self.client.set_leverage.side_effect = InvalidRequestError(
+            request="POST /v5/position/set-leverage", message="leverage not modified",
+            status_code=110043, time="00:00:00", resp_headers={},
+        )
+        success, _ = self.trade()
+        self.assertTrue(success)
+        self.assertEqual(self.client.set_leverage.call_count, 1)
+        self.assertEqual(self.client.place_order.call_count, 1)
+
+    def test_private_10006_is_not_retried_and_does_not_send_order(self):
+        self.client.set_leverage.side_effect = InvalidRequestError(
+            request="POST /v5/position/set-leverage", message="Too many visits",
+            status_code=10006, time="00:00:00", resp_headers={},
+        )
+        success, _ = self.trade()
+        self.assertFalse(success)
+        self.assertEqual(self.client.set_leverage.call_count, 1)
+        self.client.place_order.assert_not_called()
+        self.assertGreater(bybit_guard.cooldown_remaining(), 0)
 
     def test_short_rounding_never_widens_stop(self):
         success, qty = self.trade(direction="SHORT", tp="97.66", sl="101.34")

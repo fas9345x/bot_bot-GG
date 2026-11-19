@@ -6,8 +6,21 @@ import time
 import numpy as np
 import pandas as pd
 import requests
+from bybit_guard import RateLimitCooldown, call_bybit, cooldown_remaining
 
 logger = logging.getLogger(__name__)
+
+
+def _is_rate_limited_response(response):
+    status = getattr(response, "status_code", None)
+    if status == 429:
+        return True
+    if status not in (None, 200):
+        return False
+    try:
+        return str(response.json().get("retCode", "")) == "10006"
+    except (ValueError, AttributeError):
+        return False
 
 
 def _is_testnet():
@@ -31,12 +44,19 @@ def get_klines(symbol="BTCUSDT", interval="15", limit=250):
 
     # Read prices from the same environment in which orders are placed.
     host = "https://api-testnet.bybit.com" if _is_testnet() else "https://api.bybit.com"
+    if cooldown_remaining() > 0:
+        logger.info("Skipping candle request for %s during Bybit rate-limit cooldown", symbol)
+        return None
     try:
-        response = requests.get(
-            f"{host}/v5/market/kline",
-            params={"category": "linear", "symbol": symbol, "interval": interval, "limit": count},
-            headers={"User-Agent": "TradeAI/15m"},
-            timeout=15,
+        response = call_bybit(
+            lambda: requests.get(
+                f"{host}/v5/market/kline",
+                params={"category": "linear", "symbol": symbol, "interval": interval, "limit": count},
+                headers={"User-Agent": "TradeAI/15m"},
+                timeout=15,
+            ),
+            action=f"get_klines:{symbol}",
+            response_checker=_is_rate_limited_response,
         )
         response.raise_for_status()
         data = response.json()
@@ -74,6 +94,6 @@ def get_klines(symbol="BTCUSDT", interval="15", limit=250):
             raise ValueError("Invalid OHLCV data")
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
         return df.reset_index(drop=True)
-    except (requests.RequestException, KeyError, TypeError, ValueError, OverflowError) as exc:
+    except (RateLimitCooldown, requests.RequestException, KeyError, TypeError, ValueError, OverflowError) as exc:
         logger.warning("Candle request failed for %s: %s", symbol, exc)
         return None
